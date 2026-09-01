@@ -1,0 +1,19 @@
+{
+  "TableName": "ai-lead-qualification-leads",
+  "AttributeDefinitions": [
+    {
+      "AttributeName": "lead_id",
+      "AttributeType": "S"
+    }
+  ],
+  "KeySchema": [
+    {
+      "AttributeName": "lead_id",
+      "KeyType": "HASH"
+    }
+  ],
+  "ProvisionedThroughput": {
+    "ReadCapacityUnits": 1,
+    "WriteCapacityUnits": 1
+  }
+}

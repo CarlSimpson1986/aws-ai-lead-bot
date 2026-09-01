@@ -1,0 +1,8 @@
+{
+  "lead_id": {"S": "lead-test-001"},
+  "name": {"S": "Sarah Jones"},
+  "email": {"S": "sarah@example.com"},
+  "company": {"S": "Acme Consulting"},
+  "message": {"S": "We need an AI chatbot to qualify inbound sales leads and integrate with our CRM."},
+  "status": {"S": "PENDING"}
+}
