@@ -1,0 +1,9 @@
+{
+  "BudgetName": "aws-ai-lead-bot-monthly",
+  "BudgetLimit": {
+    "Amount": "10",
+    "Unit": "USD"
+  },
+  "BudgetType": "COST",
+  "TimeUnit": "MONTHLY"
+}
