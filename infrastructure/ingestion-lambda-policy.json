@@ -1,0 +1,19 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:PutItem"
+      ],
+      "Resource": "arn:aws:dynamodb:eu-west-2:249215389486:table/ai-lead-qualification-leads"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "sqs:SendMessage"
+      ],
+      "Resource": "arn:aws:sqs:eu-west-2:249215389486:ai-lead-qualification-processing"
+    }
+  ]
+}
