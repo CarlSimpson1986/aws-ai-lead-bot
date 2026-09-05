@@ -1,0 +1,1 @@
+{"statusCode": 400, "body": "{\"error\": \"Missing required fields\", \"fields\": [\"company\", \"message\"]}"}
