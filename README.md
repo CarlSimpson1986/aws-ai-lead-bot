@@ -50,3 +50,21 @@ Infrastructure or provider-level restrictions should be distinguished from appli
 | Area | Decision | Why | Trade-off / Alternative |
 |---|---|---|---|
 | Bedrock verification failure | Do not broaden IAM permissions | The live Converse call reached Bedrock but was blocked by AWS account verification, not by missing role permissions | Wait for account verification instead of weakening least-privilege IAM |
+
+### SQS Visibility Timeout
+
+The processing Lambda has a 30-second execution timeout. The SQS processing queue is configured with a 180-second visibility timeout.
+
+This follows AWS guidance to set the queue visibility timeout to at least six times the Lambda timeout when SQS is used as a Lambda event source.
+
+**Why this matters:**
+- Prevents a message becoming visible again while the Lambda may still be processing it.
+- Reduces accidental duplicate processing.
+- Gives AWS room for throttling and retry behaviour.
+- Works alongside the application-level idempotency guard.
+
+**Trade-off:**  
+A longer visibility timeout means a genuinely failed message takes longer to become available for another processing attempt. For this asynchronous lead-qualification workload, reliability is more important than retrying within a few seconds.
+
+**Alternative:**  
+For latency-sensitive workloads, a shorter Lambda timeout and correspondingly shorter SQS visibility timeout could reduce retry delay.

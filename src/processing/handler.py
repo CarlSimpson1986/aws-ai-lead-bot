@@ -31,6 +31,10 @@ def should_notify(qualification):
     return qualification["decision"] == "QUALIFIED"
 
 
+def is_already_processed(lead):
+    return lead.get("status") in ["QUALIFIED", "UNQUALIFIED"]
+
+
 def update_lead_result(table, lead_id, qualification):
     table.update_item(
         Key={"lead_id": lead_id},
@@ -88,6 +92,16 @@ def lambda_handler(event, context):
 
     if not lead:
         raise RuntimeError(f"Lead not found: {lead_id}")
+
+    if is_already_processed(lead):
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "lead_id": lead_id,
+                "message": "Lead already processed",
+                "status": lead["status"]
+            })
+        }
 
     prompt = f"""
 You are a lead qualification system.
