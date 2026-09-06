@@ -68,3 +68,35 @@ A longer visibility timeout means a genuinely failed message takes longer to bec
 
 **Alternative:**  
 For latency-sensitive workloads, a shorter Lambda timeout and correspondingly shorter SQS visibility timeout could reduce retry delay.
+
+## End-to-End Async Validation
+
+The complete asynchronous lead qualification workflow was tested successfully in AWS.
+
+Test result:
+
+- Lead submitted to the ingestion Lambda
+- API-style response returned `202 Accepted`
+- Lead persisted to DynamoDB with `PENDING` status
+- SQS automatically triggered the processing Lambda
+- Processing Lambda retrieved the lead from DynamoDB
+- Amazon Nova Micro evaluated the business requirement
+- Model output passed application-level validation
+- Lead was scored `85`
+- Final status updated to `QUALIFIED`
+- Qualification reason persisted to DynamoDB
+- SNS published the qualified-lead notification
+- Notification email was received successfully
+
+Example qualification result:
+
+```json
+{
+  "status": "QUALIFIED",
+  "qualification_score": 85,
+  "qualification_reason": "Clear business need for AI chatbot to manage candidate inquiries and integrate with CRM."
+}
+```
+
+This validates the complete asynchronous architecture rather than testing each component only in isolation.
+
