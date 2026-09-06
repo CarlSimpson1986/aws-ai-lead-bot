@@ -27,12 +27,50 @@ def validate_qualification(result):
     return result
 
 
+def should_notify(qualification):
+    return qualification["decision"] == "QUALIFIED"
+
+
+def update_lead_result(table, lead_id, qualification):
+    table.update_item(
+        Key={"lead_id": lead_id},
+        UpdateExpression="""
+            SET #status = :status,
+                qualification_score = :score,
+                qualification_reason = :reason
+        """,
+        ExpressionAttributeNames={
+            "#status": "status"
+        },
+        ExpressionAttributeValues={
+            ":status": qualification["decision"],
+            ":score": qualification["score"],
+            ":reason": qualification["reason"]
+        }
+    )
+
+
+def publish_qualified_lead(sns, topic_arn, lead_id, qualification):
+    sns.publish(
+        TopicArn=topic_arn,
+        Subject="Qualified AI Lead",
+        Message=json.dumps({
+            "lead_id": lead_id,
+            "score": qualification["score"],
+            "reason": qualification["reason"]
+        })
+    )
+
+
 def lambda_handler(event, context):
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(os.environ["TABLE_NAME"])
 
     bedrock = boto3.client("bedrock-runtime")
     model_id = os.environ["MODEL_ID"]
+
+    sns = boto3.client("sns")
+    topic_arn = os.environ["SNS_TOPIC_ARN"]
 
     records = event.get("Records", [])
 
@@ -43,9 +81,7 @@ def lambda_handler(event, context):
     lead_id = message_body["lead_id"]
 
     response = table.get_item(
-        Key={
-            "lead_id": lead_id
-        }
+        Key={"lead_id": lead_id}
     )
 
     lead = response.get("Item")
@@ -92,11 +128,7 @@ Lead message:
         messages=[
             {
                 "role": "user",
-                "content": [
-                    {
-                        "text": prompt
-                    }
-                ]
+                "content": [{"text": prompt}]
             }
         ],
         inferenceConfig={
@@ -109,6 +141,16 @@ Lead message:
 
     qualification = json.loads(model_text)
     qualification = validate_qualification(qualification)
+
+    update_lead_result(table, lead_id, qualification)
+
+    if should_notify(qualification):
+        publish_qualified_lead(
+            sns,
+            topic_arn,
+            lead_id,
+            qualification
+        )
 
     return {
         "statusCode": 200,
