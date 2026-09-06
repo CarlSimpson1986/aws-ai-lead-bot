@@ -4,14 +4,36 @@ import os
 import boto3
 
 
-dynamodb = boto3.resource("dynamodb")
-table = dynamodb.Table(os.environ["TABLE_NAME"])
+def validate_qualification(result):
+    score = result.get("score")
+    decision = result.get("decision")
+    reason = result.get("reason")
 
-bedrock = boto3.client("bedrock-runtime")
-model_id = os.environ["MODEL_ID"]
+    if not isinstance(score, int) or not 0 <= score <= 100:
+        raise ValueError("Invalid qualification score")
+
+    if decision not in ["QUALIFIED", "UNQUALIFIED"]:
+        raise ValueError("Invalid qualification decision")
+
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError("Invalid qualification reason")
+
+    if decision == "QUALIFIED" and score < 70:
+        raise ValueError("QUALIFIED decision requires score >= 70")
+
+    if decision == "UNQUALIFIED" and score >= 70:
+        raise ValueError("UNQUALIFIED decision requires score < 70")
+
+    return result
 
 
 def lambda_handler(event, context):
+    dynamodb = boto3.resource("dynamodb")
+    table = dynamodb.Table(os.environ["TABLE_NAME"])
+
+    bedrock = boto3.client("bedrock-runtime")
+    model_id = os.environ["MODEL_ID"]
+
     records = event.get("Records", [])
 
     if not records:
@@ -86,6 +108,7 @@ Lead message:
     model_text = bedrock_response["output"]["message"]["content"][0]["text"]
 
     qualification = json.loads(model_text)
+    qualification = validate_qualification(qualification)
 
     return {
         "statusCode": 200,
