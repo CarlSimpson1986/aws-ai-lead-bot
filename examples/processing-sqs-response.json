@@ -1,0 +1,1 @@
+{"statusCode": 200, "body": "{\"message\": \"SQS message received\", \"lead_id\": \"test-lead-123\"}"}
