@@ -138,3 +138,26 @@ Valid production-style request:
 - DynamoDB status was updated to QUALIFIED
 - SNS notification email was received successfully
 
+
+### Processing Concurrency Guardrail
+
+The SQS event source mapping for the processing Lambda is configured with:
+
+- Batch size: 1
+- Maximum concurrency: 2
+
+This means SQS can buffer a large backlog of leads, but only two processing Lambda executions can run at the same time.
+
+This protects the Bedrock integration from uncontrolled fan-out and helps contain AI inference usage and cost.
+
+An initial attempt was made to use Lambda reserved concurrency. AWS rejected this because the account must retain a minimum level of unreserved concurrency. Rather than reserving account-wide capacity, the concurrency limit was moved to the SQS event source mapping.
+
+**Why this is preferable here:**
+- Limits concurrency specifically at the queue-to-processing boundary
+- Preserves account-wide Lambda capacity
+- Allows SQS to absorb traffic spikes safely
+- Reduces the risk of excessive simultaneous Bedrock calls
+
+**Trade-off:**  
+A large backlog will process more slowly because only two messages can be processed concurrently. For this lead-qualification workload, predictable cost and controlled scaling are more important than maximum throughput.
+
