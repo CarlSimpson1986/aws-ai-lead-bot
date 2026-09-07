@@ -1,7 +1,20 @@
+import logging
 import json
 import os
 
 import boto3
+
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+
+def log_event(event_name, **fields):
+    payload = {
+        "event": event_name,
+        **fields
+    }
+    logger.info(json.dumps(payload))
 
 
 def validate_qualification(result):
@@ -84,6 +97,7 @@ def lambda_handler(event, context):
 
     message_body = json.loads(records[0]["body"])
     lead_id = message_body["lead_id"]
+    log_event("lead_received", lead_id=lead_id)
 
     response = table.get_item(
         Key={"lead_id": lead_id}
@@ -95,6 +109,7 @@ def lambda_handler(event, context):
         raise RuntimeError(f"Lead not found: {lead_id}")
 
     if is_already_processed(lead):
+        log_event("duplicate_skipped", lead_id=lead_id, status=lead["status"])
         return {
             "statusCode": 200,
             "body": json.dumps({
@@ -105,6 +120,7 @@ def lambda_handler(event, context):
         }
 
     if not claim_lead_for_processing(table, lead_id):
+        log_event("claim_skipped", lead_id=lead_id)
         return {
             "statusCode": 200,
             "body": json.dumps({
@@ -112,6 +128,8 @@ def lambda_handler(event, context):
                 "message": "Lead already claimed or processed"
             })
         }
+
+    log_event("lead_claimed", lead_id=lead_id, status="PROCESSING")
 
     prompt = f"""
 You are a lead qualification system.
@@ -165,6 +183,12 @@ Lead message:
 
     qualification = json.loads(model_text)
     qualification = validate_qualification(qualification)
+    log_event(
+        "qualification_complete",
+        lead_id=lead_id,
+        status=qualification["decision"],
+        score=qualification["score"]
+    )
 
     update_lead_result(table, lead_id, qualification)
 
@@ -175,6 +199,7 @@ Lead message:
             lead_id,
             qualification
         )
+        log_event("notification_sent", lead_id=lead_id, status=qualification["decision"])
 
     return {
         "statusCode": 200,

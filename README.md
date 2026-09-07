@@ -241,3 +241,34 @@ The alarm recovery path was also validated:
 
 This confirms the monitoring state reflects the actual health of the queue rather than remaining latched after an incident.
 
+
+### Structured Application Logging
+
+The processing Lambda emits structured JSON logs to CloudWatch for key lifecycle events:
+
+- `lead_received`
+- `lead_claimed`
+- `qualification_complete`
+- `notification_sent`
+- `duplicate_skipped`
+- `claim_skipped`
+
+Logs intentionally include only operational fields such as:
+
+- `lead_id`
+- `status`
+- `score`
+
+Personally identifiable lead data such as names, email addresses and full lead messages are not written to application logs.
+
+A live test confirmed the following sequence for a successfully qualified lead:
+
+- `lead_received`
+- `lead_claimed`
+- `qualification_complete`
+- `notification_sent`
+
+The test completed in approximately 3.9 seconds and used 98 MB of the Lambda's 128 MB memory allocation.
+
+This provides operational traceability while reducing unnecessary exposure of customer data in CloudWatch.
+
