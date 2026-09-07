@@ -161,3 +161,30 @@ An initial attempt was made to use Lambda reserved concurrency. AWS rejected thi
 **Trade-off:**  
 A large backlog will process more slowly because only two messages can be processed concurrently. For this lead-qualification workload, predictable cost and controlled scaling are more important than maximum throughput.
 
+
+### Atomic Idempotency and Processing Lease
+
+SQS Standard provides at-least-once delivery, so the same lead message can occasionally be delivered more than once.
+
+A simple status check is not sufficient on its own because two Lambda invocations could both read a lead while its status is still `PENDING` and both call Bedrock.
+
+The processing Lambda therefore uses a conditional DynamoDB update to atomically claim the lead:
+
+- `PENDING` becomes `PROCESSING`
+- A 120-second processing lease is written at the same time
+- Only the invocation that successfully acquires the claim continues to Bedrock
+- Duplicate invocations fail the conditional update and stop before inference
+- If processing crashes, the lease eventually expires so a later SQS retry can reclaim the lead
+- On successful completion, the lead becomes `QUALIFIED` or `UNQUALIFIED` and the temporary lease is removed
+
+The timing relationship is:
+
+- Processing Lambda timeout: 30 seconds
+- Processing lease: 120 seconds
+- SQS visibility timeout: 180 seconds
+
+This provides duplicate protection without permanently locking a lead if processing fails.
+
+A live test confirmed that a lead moved through `PENDING` -> `PROCESSING` -> `QUALIFIED`, scored 85, had its lease removed, and still generated the expected SNS email notification.
+
+

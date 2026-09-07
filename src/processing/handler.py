@@ -42,6 +42,7 @@ def update_lead_result(table, lead_id, qualification):
             SET #status = :status,
                 qualification_score = :score,
                 qualification_reason = :reason
+            REMOVE processing_lease_expires_at
         """,
         ExpressionAttributeNames={
             "#status": "status"
@@ -100,6 +101,15 @@ def lambda_handler(event, context):
                 "lead_id": lead_id,
                 "message": "Lead already processed",
                 "status": lead["status"]
+            })
+        }
+
+    if not claim_lead_for_processing(table, lead_id):
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "lead_id": lead_id,
+                "message": "Lead already claimed or processed"
             })
         }
 
@@ -173,3 +183,44 @@ Lead message:
             "qualification": qualification
         })
     }
+
+def claim_lead_for_processing(table, lead_id):
+    import time
+    from botocore.exceptions import ClientError
+
+    now = int(time.time())
+    lease_expires_at = now + 120
+
+    try:
+        table.update_item(
+            Key={"lead_id": lead_id},
+            UpdateExpression="""
+                SET #status = :processing,
+                    processing_lease_expires_at = :lease_expires_at
+            """,
+            ConditionExpression="""
+                #status = :pending
+                OR (
+                    #status = :processing
+                    AND (
+                        attribute_not_exists(processing_lease_expires_at)
+                        OR processing_lease_expires_at < :now
+                    )
+                )
+            """,
+            ExpressionAttributeNames={
+                "#status": "status"
+            },
+            ExpressionAttributeValues={
+                ":processing": "PROCESSING",
+                ":pending": "PENDING",
+                ":lease_expires_at": lease_expires_at,
+                ":now": now
+            }
+        )
+        return True
+
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            return False
+        raise
