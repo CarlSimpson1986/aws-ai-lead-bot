@@ -232,3 +232,12 @@ A live failure test confirmed the complete monitoring path:
 
 This separates business notifications from infrastructure alerts and ensures failed workloads do not remain unnoticed.
 
+
+The alarm recovery path was also validated:
+
+- Test messages were removed from the DLQ
+- CloudWatch published fresh `0` datapoints
+- The alarm transitioned automatically from `ALARM` back to `OK`
+
+This confirms the monitoring state reflects the actual health of the queue rather than remaining latched after an incident.
+
