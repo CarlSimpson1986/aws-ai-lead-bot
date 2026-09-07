@@ -207,3 +207,28 @@ Observed behaviour:
 
 This demonstrates that malformed or repeatedly failing messages do not disappear silently and can be isolated for investigation or later redrive.
 
+
+### DLQ Monitoring and Operational Alerts
+
+The dead-letter queue is monitored with a CloudWatch alarm on the SQS `ApproximateNumberOfMessagesVisible` metric.
+
+Alarm configuration:
+
+- Metric: `ApproximateNumberOfMessagesVisible`
+- Queue: `ai-lead-qualification-dlq`
+- Evaluation period: 60 seconds
+- Threshold: 1 or more visible messages
+- Missing data treatment: `notBreaching`
+- Alarm action: dedicated SNS operations topic
+- Notification destination: confirmed operations email subscription
+
+A live failure test confirmed the complete monitoring path:
+
+- Failed processing messages were moved to the DLQ
+- CloudWatch detected 2 visible DLQ messages
+- Alarm changed from `INSUFFICIENT_DATA` to `ALARM`
+- SNS published the operational alert
+- Alert email was received successfully
+
+This separates business notifications from infrastructure alerts and ensures failed workloads do not remain unnoticed.
+

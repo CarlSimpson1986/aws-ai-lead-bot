@@ -1,0 +1,23 @@
+{
+  "AlarmName": "ai-lead-dlq-has-messages",
+  "AlarmDescription": "Alert when failed lead-processing messages are present in the DLQ",
+  "ActionsEnabled": true,
+  "AlarmActions": [
+    "arn:aws:sns:eu-west-2:249215389486:ai-lead-ops-alerts"
+  ],
+  "MetricName": "ApproximateNumberOfMessagesVisible",
+  "Namespace": "AWS/SQS",
+  "Statistic": "Average",
+  "Dimensions": [
+    {
+      "Name": "QueueName",
+      "Value": "ai-lead-qualification-dlq"
+    }
+  ],
+  "Period": 60,
+  "EvaluationPeriods": 1,
+  "DatapointsToAlarm": 1,
+  "Threshold": 1,
+  "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+  "TreatMissingData": "notBreaching"
+}
