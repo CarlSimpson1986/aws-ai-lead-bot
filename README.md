@@ -272,3 +272,26 @@ The test completed in approximately 3.9 seconds and used 98 MB of the Lambda's 1
 
 This provides operational traceability while reducing unnecessary exposure of customer data in CloudWatch.
 
+
+### Ingestion Lambda Structured Logging
+
+The ingestion Lambda also emits privacy-conscious structured JSON logs.
+
+Successful request lifecycle:
+
+- `request_received`
+- `validation_passed`
+- `lead_persisted`
+- `lead_enqueued`
+
+Rejected requests emit:
+
+- `request_received`
+- `validation_failed`
+
+Operational fields such as `request_id`, `lead_id` and status are logged, while customer data including names, email addresses, company names and full lead messages are excluded.
+
+A live successful API request confirmed the full ingestion log sequence and completed in approximately 481 ms using 96 MB of the Lambda's 128 MB memory allocation.
+
+This provides traceability across the API ingestion path without unnecessarily exposing lead data in CloudWatch.
+

@@ -1,3 +1,4 @@
+import logging
 import json
 import os
 import uuid
@@ -8,6 +9,18 @@ import boto3
 
 REQUIRED_FIELDS = ["name", "email", "company", "message"]
 
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+
+def log_event(event_name, **fields):
+    payload = {
+        "event": event_name,
+        **fields
+    }
+    logger.info(json.dumps(payload))
+
+
 dynamodb = boto3.resource("dynamodb")
 table = dynamodb.Table(os.environ["TABLE_NAME"])
 
@@ -17,6 +30,7 @@ queue_url = os.environ["QUEUE_URL"]
 
 def lambda_handler(event, context):
     try:
+        log_event("request_received", request_id=getattr(context, "aws_request_id", None))
         body = event.get("body", event)
 
         if isinstance(body, str):
@@ -32,6 +46,7 @@ def lambda_handler(event, context):
         ]
 
         if missing_fields:
+            log_event("validation_failed", reason="missing_fields", fields=missing_fields)
             return {
                 "statusCode": 400,
                 "body": json.dumps({
@@ -39,6 +54,8 @@ def lambda_handler(event, context):
                     "fields": missing_fields
                 })
             }
+
+        log_event("validation_passed")
 
         lead_id = str(uuid.uuid4())
         created_at = datetime.now(timezone.utc).isoformat()
@@ -54,6 +71,7 @@ def lambda_handler(event, context):
         }
 
         table.put_item(Item=lead)
+        log_event("lead_persisted", lead_id=lead_id, status="PENDING")
 
         sqs.send_message(
             QueueUrl=queue_url,
@@ -61,6 +79,8 @@ def lambda_handler(event, context):
                 "lead_id": lead_id
             })
         )
+
+        log_event("lead_enqueued", lead_id=lead_id)
 
         return {
             "statusCode": 202,
@@ -72,6 +92,7 @@ def lambda_handler(event, context):
         }
 
     except (json.JSONDecodeError, ValueError):
+        log_event("validation_failed", reason="invalid_json")
         return {
             "statusCode": 400,
             "body": json.dumps({
