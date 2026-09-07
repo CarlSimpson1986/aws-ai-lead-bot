@@ -188,3 +188,22 @@ This provides duplicate protection without permanently locking a lead if process
 A live test confirmed that a lead moved through `PENDING` -> `PROCESSING` -> `QUALIFIED`, scored 85, had its lease removed, and still generated the expected SNS email notification.
 
 
+
+### Dead-Letter Queue Validation
+
+The processing queue is configured with a dead-letter queue and a maximum receive count of 3.
+
+A live poison-message test was performed by sending a malformed processing message into the real SQS queue.
+
+Observed behaviour:
+
+- SQS delivered the message to the processing Lambda
+- The Lambda rejected the malformed payload during JSON parsing
+- The message was retried automatically
+- Retry attempts followed the configured 180-second visibility timeout
+- After the maximum receive count was reached, SQS moved the message to the dead-letter queue
+- The failed message was successfully retrieved from the DLQ for inspection
+- Failure occurred before the Bedrock invocation, avoiding unnecessary model inference usage
+
+This demonstrates that malformed or repeatedly failing messages do not disappear silently and can be isolated for investigation or later redrive.
+
