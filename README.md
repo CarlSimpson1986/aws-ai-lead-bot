@@ -100,3 +100,41 @@ Example qualification result:
 
 This validates the complete asynchronous architecture rather than testing each component only in isolation.
 
+
+## Public API Gateway
+
+A public Amazon API Gateway HTTP API exposes the ingestion workflow through:
+
+POST /leads
+
+The HTTP API uses an AWS_PROXY integration with the ingestion Lambda and payload format version 2.0.
+
+### API Security and Cost Guardrail
+
+The POST /leads route is configured with:
+
+- Steady-state throttling: 1 request per second
+- Burst limit: 2 requests
+
+This reduces the risk of accidental or abusive traffic generating unnecessary Lambda, SQS and Bedrock usage.
+
+Throttling is a cost and availability guardrail, not an authentication mechanism. A production deployment could additionally introduce authentication, bot protection or edge security depending on whether the lead endpoint is intended to be public or restricted.
+
+### Public API Validation
+
+The public endpoint was tested with both invalid and valid requests.
+
+Invalid request:
+- Missing required fields
+- Returned HTTP 400
+- Rejected before SQS and Bedrock processing
+
+Valid production-style request:
+- Returned HTTP 202 Accepted
+- Persisted the lead to DynamoDB
+- Enqueued the lead ID through SQS
+- Automatically invoked the processing Lambda
+- Amazon Nova Micro scored the lead 85
+- DynamoDB status was updated to QUALIFIED
+- SNS notification email was received successfully
+

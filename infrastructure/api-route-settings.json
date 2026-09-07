@@ -1,0 +1,6 @@
+{
+  "POST /leads": {
+    "ThrottlingBurstLimit": 2,
+    "ThrottlingRateLimit": 1
+  }
+}
