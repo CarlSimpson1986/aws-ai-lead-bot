@@ -295,3 +295,30 @@ A live successful API request confirmed the full ingestion log sequence and comp
 
 This provides traceability across the API ingestion path without unnecessarily exposing lead data in CloudWatch.
 
+
+### Public Input Validation Hardening
+
+The public `POST /leads` endpoint validates both field presence and field quality before data is persisted or sent for AI processing.
+
+Current validation rules:
+
+- `name`: string, maximum 100 characters
+- `email`: string, maximum 254 characters, basic email-format validation
+- `company`: string, maximum 200 characters
+- `message`: string, maximum 2,000 characters
+- Empty strings are rejected
+- Incorrect data types are rejected
+
+This reduces malformed input, oversized payloads and unnecessary downstream processing.
+
+Live validation tests confirmed:
+
+- Non-string `name` values are rejected
+- Invalid email formats are rejected
+- Messages longer than 2,000 characters are rejected
+- Invalid requests return HTTP 400
+- Rejected requests do not reach DynamoDB, SQS or Bedrock
+- A valid request still completed the full workflow successfully and generated the expected qualified-lead email notification
+
+The message-length limit also acts as an AI cost guardrail by preventing excessively large user-controlled prompts from reaching Bedrock.
+
