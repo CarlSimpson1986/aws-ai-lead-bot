@@ -322,3 +322,37 @@ Live validation tests confirmed:
 
 The message-length limit also acts as an AI cost guardrail by preventing excessively large user-controlled prompts from reaching Bedrock.
 
+
+## Automated Tests
+
+The project includes local unit tests using `pytest`.
+
+Current coverage includes:
+
+### Ingestion validation
+- Valid lead payloads
+- Invalid email formats
+- Incorrect field data types
+- Oversized lead messages
+
+### Processing validation
+- Valid qualified model output
+- Valid unqualified model output
+- Scores outside the 0-100 range
+- `QUALIFIED` decisions below the 70-point threshold
+- `UNQUALIFIED` decisions at or above the 70-point threshold
+- Notification decision logic
+
+Current test result:
+
+- 9 tests passed
+- 0 tests failed
+
+The ingestion Lambda was also refactored so AWS SDK clients are created inside `lambda_handler()` rather than during module import. This keeps pure validation logic independent of AWS configuration and makes local unit testing easier.
+
+Development dependencies are recorded in `requirements-dev.txt` so the test environment can be reproduced after cloning the repository.
+
+Run the test suite with:
+
+`python -m pytest tests -v`
+

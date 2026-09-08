@@ -21,13 +21,6 @@ def log_event(event_name, **fields):
     logger.info(json.dumps(payload))
 
 
-dynamodb = boto3.resource("dynamodb")
-table = dynamodb.Table(os.environ["TABLE_NAME"])
-
-sqs = boto3.client("sqs")
-queue_url = os.environ["QUEUE_URL"]
-
-
 FIELD_LIMITS = {
     "name": 100,
     "email": 254,
@@ -67,6 +60,12 @@ def validate_lead_fields(body):
 
 
 def lambda_handler(event, context):
+    dynamodb = boto3.resource("dynamodb")
+    table = dynamodb.Table(os.environ["TABLE_NAME"])
+
+    sqs = boto3.client("sqs")
+    queue_url = os.environ["QUEUE_URL"]
+
     try:
         log_event("request_received", request_id=getattr(context, "aws_request_id", None))
         body = event.get("body", event)
