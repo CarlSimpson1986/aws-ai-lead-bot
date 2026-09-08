@@ -1,0 +1,68 @@
+name: Deploy to AWS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install test dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest tests -v
+
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::249215389486:role/github-actions-ai-lead-deploy-role
+          aws-region: eu-west-2
+          allowed-account-ids: 249215389486
+
+      - name: Package Lambda functions
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+
+          for name in ("ingestion", "processing"):
+              source = Path(f"src/{name}/handler.py")
+              output = Path(f"{name}-lambda.zip")
+
+              with ZipFile(output, "w", ZIP_DEFLATED) as archive:
+                  archive.write(source, arcname="handler.py")
+
+              print(f"Created {output}")
+          PY
+
+      - name: Deploy ingestion Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name ai-lead-ingestion \
+            --zip-file fileb://ingestion-lambda.zip
+
+          aws lambda wait function-updated-v2 \
+            --function-name ai-lead-ingestion
+
+      - name: Deploy processing Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name ai-lead-processing \
+            --zip-file fileb://processing-lambda.zip
+
+          aws lambda wait function-updated-v2 \
+            --function-name ai-lead-processing
