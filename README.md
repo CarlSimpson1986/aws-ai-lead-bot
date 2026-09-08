@@ -356,3 +356,57 @@ Run the test suite with:
 
 `python -m pytest tests -v`
 
+
+## CI/CD Pipeline
+
+The project uses GitHub Actions for continuous integration and AWS deployment.
+
+### Continuous Integration
+
+The CI workflow runs automatically on pushes and pull requests to `main`.
+
+It:
+
+- Checks out the repository
+- Configures Python 3.13
+- Installs development dependencies
+- Runs the complete pytest suite
+- Fails the workflow if automated tests fail
+
+The first live CI run completed successfully with all 9 tests passing.
+
+### Continuous Deployment
+
+A separate deployment workflow provides controlled deployment to AWS.
+
+The deployment workflow:
+
+- Is manually triggered during the initial commissioning phase
+- Runs the automated test suite before deployment
+- Authenticates to AWS using GitHub OIDC
+- Uses temporary AWS credentials rather than stored access keys
+- Packages both Lambda functions
+- Deploys the ingestion Lambda
+- Waits for the deployment to complete
+- Deploys the processing Lambda
+- Waits for the deployment to complete
+
+AWS trust is restricted to the exact GitHub repository and `main` branch using immutable GitHub owner and repository identifiers.
+
+The deployment role follows least privilege and can only update and inspect:
+
+- `ai-lead-ingestion`
+- `ai-lead-processing`
+
+It cannot modify IAM, DynamoDB, SQS, API Gateway, Bedrock or unrelated Lambda functions.
+
+### Least-Privilege Deployment Validation
+
+The first CD run exposed a missing `lambda:GetFunction` permission during the Lambda deployment waiter step.
+
+The Lambda code update itself succeeded, but GitHub Actions could not verify completion.
+
+Rather than assigning broad Lambda permissions, only the required `lambda:GetFunction` read permission was added to the deployment role.
+
+The workflow was rerun successfully and completed the full CI/CD deployment path.
+
