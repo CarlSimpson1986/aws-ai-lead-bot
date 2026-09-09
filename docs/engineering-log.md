@@ -280,3 +280,24 @@ Before declaring the project portfolio-ready, review:
 7. Screenshots/evidence
 8. Interview explanation
 9. Real Upwork job match
+
+## 17. Path-Aware CI/CD
+
+**Decision:** Restrict automatic CI runs to application code, tests, development dependencies and GitHub workflow changes.
+
+**Reason:** Documentation-only changes do not affect Lambda behaviour and should not cause unnecessary testing and AWS redeployment.
+
+**Included paths:**
+- `src/**`
+- `tests/**`
+- `requirements-dev.txt`
+- `.github/workflows/**`
+
+**Excluded examples:**
+- `README.md`
+- `docs/**`
+
+**Trade-off:** Changes outside the configured paths will not automatically exercise CI.
+
+**Validation:** The workflow-change commit triggered CI and CD successfully. A documentation-only commit is used to verify that neither workflow runs unnecessarily.
+
