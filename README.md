@@ -2,6 +2,20 @@
 
 Serverless asynchronous lead qualification system built with AWS CLI.
 
+## Business Problem
+
+Businesses receiving leads through websites, campaigns or internal systems often need to decide quickly which enquiries deserve immediate attention.
+
+Performing AI qualification synchronously inside the public request creates several problems:
+
+- AI inference can add latency to the customer-facing request.
+- temporary AI failures can cause the entire submission to fail.
+- sudden traffic spikes can increase downstream processing and cost.
+- duplicate processing can create inconsistent lead outcomes.
+- failed leads can disappear without an operational recovery path.
+
+This project demonstrates a low-cost AWS architecture that accepts a lead quickly, stores it safely, processes qualification asynchronously with Amazon Bedrock, prevents duplicate processing, validates AI output and isolates repeated failures for operational review.
+
 ## Architecture
 
 ```mermaid
