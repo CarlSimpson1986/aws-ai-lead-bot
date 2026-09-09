@@ -4,9 +4,40 @@ Serverless asynchronous lead qualification system built with AWS CLI.
 
 ## Architecture
 
-API Gateway -> Ingestion Lambda -> DynamoDB + SQS -> Processing Lambda -> Amazon Bedrock -> DynamoDB + SNS
+```mermaid
+flowchart LR
+    Client[Lead Form / Client] -->|POST /leads| API[API Gateway HTTP API]
 
-Failed SQS messages are routed to a Dead-Letter Queue (DLQ).
+    API --> Ingest[Ingestion Lambda]
+
+    Ingest -->|Persist PENDING lead| DB[(DynamoDB)]
+    Ingest -->|Enqueue lead_id only| Queue[SQS Processing Queue]
+
+    Queue --> Process[Processing Lambda]
+
+    Process -->|Atomic processing claim| DB
+    Process -->|Company + message only| Bedrock[Amazon Bedrock<br/>Nova Micro]
+
+    Bedrock -->|Validated JSON result| Process
+
+    Process -->|QUALIFIED / UNQUALIFIED<br/>score + reason| DB
+    Process -->|Qualified lead notification| SNS[SNS]
+
+    Queue -->|After repeated failures| DLQ[SQS Dead-Letter Queue]
+    DLQ --> Alarm[CloudWatch Alarm]
+    Alarm --> OpsSNS[SNS Ops Alert]
+
+    SNS --> Email[Email Notification]
+    OpsSNS --> OpsEmail[Operational Alert Email]
+```
+
+### Request Flow
+
+A public lead submission is validated by the ingestion Lambda, persisted in DynamoDB and acknowledged quickly with HTTP `202 Accepted`.
+
+Only the generated `lead_id` is placed on SQS. The processing Lambda retrieves the lead, claims it atomically to prevent duplicate processing, sends minimised lead content to Amazon Bedrock, validates the model response and updates the persistent lead status.
+
+Repeated processing failures are isolated in the DLQ and trigger a CloudWatch operational alert.
 
 ## Project Goals
 
