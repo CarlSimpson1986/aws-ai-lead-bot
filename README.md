@@ -422,12 +422,14 @@ The first live CI run completed successfully with all 9 tests passing.
 
 ### Continuous Deployment
 
-A separate deployment workflow provides controlled deployment to AWS.
+A separate deployment workflow automatically deploys the exact commit that successfully passed Python CI on `main`.
 
 The deployment workflow:
 
-- Is manually triggered during the initial commissioning phase
-- Runs the automated test suite before deployment
+- Triggers only after a successful Python CI run caused by a push to `main`
+- Retains `workflow_dispatch` for manual deployment when required
+- Checks out the exact CI-tested commit using `workflow_run.head_sha`
+- Runs the automated test suite again before deployment
 - Authenticates to AWS using GitHub OIDC
 - Uses temporary AWS credentials rather than stored access keys
 - Packages both Lambda functions
@@ -435,6 +437,8 @@ The deployment workflow:
 - Waits for the deployment to complete
 - Deploys the processing Lambda
 - Waits for the deployment to complete
+
+Documentation-only changes are excluded from CI using path filters, preventing unnecessary Lambda redeployments.
 
 AWS trust is restricted to the exact GitHub repository and `main` branch using immutable GitHub owner and repository identifiers.
 
