@@ -18,40 +18,143 @@ This project demonstrates a low-cost AWS architecture that accepts a lead quickl
 
 ## Architecture
 
+The system is split into two views:
+
+1. **Application architecture** ? how leads move through the system.
+2. **Delivery and security architecture** ? how tested code is deployed safely to AWS.
+
+### Application Architecture
+
 ```mermaid
 flowchart LR
-    Client[Lead Form / Client] -->|POST /leads| API[API Gateway HTTP API]
+    Client[Lead Form / Client]
 
-    API --> Ingest[Ingestion Lambda]
+    API["API Gateway HTTP API<br/>POST /leads<br/>Throttle: 1 req/s, burst 2"]
 
-    Ingest -->|Persist PENDING lead| DB[(DynamoDB)]
-    Ingest -->|Enqueue lead_id only| Queue[SQS Processing Queue]
+    Ingest["Ingestion Lambda<br/>Validate request<br/>Generate lead_id"]
 
-    Queue --> Process[Processing Lambda]
+    DB[("DynamoDB<br/>Lead state")]
 
-    Process -->|Atomic processing claim| DB
-    Process -->|Company + message only| Bedrock[Amazon Bedrock<br/>Nova Micro]
+    Queue["SQS Processing Queue<br/>Visibility timeout: 180s"]
 
+    Mapping["SQS Event Source Mapping<br/>Batch size: 1<br/>Max concurrency: 2"]
+
+    Process["Processing Lambda<br/>30s timeout"]
+
+    Bedrock["Amazon Bedrock<br/>Nova Micro"]
+
+    QualifiedSNS["SNS<br/>Qualified Leads"]
+
+    QualifiedEmail["Qualified Lead Email"]
+
+    DLQ["SQS Dead-Letter Queue<br/>After 3 failed receives"]
+
+    Alarm["CloudWatch Alarm<br/>DLQ messages >= 1"]
+
+    OpsSNS["SNS<br/>Operational Alerts"]
+
+    OpsEmail["Operational Alert Email"]
+
+    Logs["CloudWatch Logs<br/>Structured, PII-conscious"]
+
+    Client -->|POST /leads| API
+    API --> Ingest
+
+    Ingest -->|Persist PENDING lead| DB
+    Ingest -->|Enqueue lead_id only| Queue
+
+    Queue --> Mapping
+    Mapping --> Process
+
+    Process -->|Atomic conditional claim<br/>120s processing lease| DB
+    Process -->|Company + message only| Bedrock
     Bedrock -->|Validated JSON result| Process
 
     Process -->|QUALIFIED / UNQUALIFIED<br/>score + reason| DB
-    Process -->|Qualified lead notification| SNS[SNS]
+    Process -->|QUALIFIED only| QualifiedSNS
+    QualifiedSNS --> QualifiedEmail
 
-    Queue -->|After repeated failures| DLQ[SQS Dead-Letter Queue]
-    DLQ --> Alarm[CloudWatch Alarm]
-    Alarm --> OpsSNS[SNS Ops Alert]
+    Queue -->|Repeated failure| DLQ
+    DLQ --> Alarm
+    Alarm --> OpsSNS
+    OpsSNS --> OpsEmail
 
-    SNS --> Email[Email Notification]
-    OpsSNS --> OpsEmail[Operational Alert Email]
+    Ingest -. Structured logs .-> Logs
+    Process -. Structured logs .-> Logs
 ```
 
 ### Request Flow
 
-A public lead submission is validated by the ingestion Lambda, persisted in DynamoDB and acknowledged quickly with HTTP `202 Accepted`.
+1. API Gateway receives `POST /leads`.
+2. The ingestion Lambda validates the public request.
+3. A `PENDING` lead is stored in DynamoDB.
+4. Only the generated `lead_id` is placed on SQS.
+5. API Gateway can return `202 Accepted` without waiting for AI inference.
+6. The SQS event source invokes the processing Lambda with controlled concurrency.
+7. The processing Lambda atomically claims the lead in DynamoDB using a temporary lease, preventing duplicate concurrent processing.
+8. Only the data required for qualification is sent to Amazon Bedrock.
+9. The model response is validated before persistent state is updated.
+10. Qualified leads generate an SNS notification.
+11. Repeated failures are moved to the DLQ and generate an operational alert.
 
-Only the generated `lead_id` is placed on SQS. The processing Lambda retrieves the lead, claims it atomically to prevent duplicate processing, sends minimised lead content to Amazon Bedrock, validates the model response and updates the persistent lead status.
+### Delivery and Security Architecture
 
-Repeated processing failures are isolated in the DLQ and trigger a CloudWatch operational alert.
+```mermaid
+flowchart LR
+    Dev["Developer<br/>Git Push"]
+
+    Repo["GitHub Repository"]
+
+    CI["GitHub Actions<br/>Python CI<br/>pytest"]
+
+    Gate{"CI successful?<br/>Push to main?"}
+
+    CD["GitHub Actions<br/>Deploy to AWS"]
+
+    OIDC["GitHub OIDC<br/>Short-lived credentials"]
+
+    DeployRole["AWS IAM Deploy Role<br/>Least privilege"]
+
+    IngestLambda["Ingestion Lambda"]
+
+    ProcessingLambda["Processing Lambda"]
+
+    IngestRole["Ingestion IAM Role<br/>DynamoDB PutItem<br/>SQS SendMessage"]
+
+    ProcessingRole["Processing IAM Role<br/>SQS + DynamoDB<br/>Bedrock + SNS"]
+
+    Budget["AWS Budget<br/>Cost guardrail"]
+
+    Dev --> Repo
+    Repo --> CI
+    CI --> Gate
+
+    Gate -->|Yes| CD
+    Gate -->|No| Stop["No Deployment"]
+
+    CD -->|Checkout exact tested SHA| OIDC
+    OIDC --> DeployRole
+
+    DeployRole -->|Update approved function only| IngestLambda
+    DeployRole -->|Update approved function only| ProcessingLambda
+
+    IngestRole -. Permissions .-> IngestLambda
+    ProcessingRole -. Permissions .-> ProcessingLambda
+
+    Budget -. Account cost monitoring .-> IngestLambda
+    Budget -. Account cost monitoring .-> ProcessingLambda
+```
+
+### Deployment Controls
+
+- CI runs automated tests before deployment.
+- Failed CI does not deploy to AWS.
+- CD deploys the exact commit SHA that CI tested.
+- GitHub authenticates to AWS through OIDC rather than stored access keys.
+- The deployment role is scoped only to the two project Lambda functions.
+- Runtime Lambda roles use separate least-privilege permissions.
+- Documentation-only changes do not trigger unnecessary Lambda deployments.
+- An AWS Budget alert provides an additional cost guardrail.
 
 ## Project Goals
 
