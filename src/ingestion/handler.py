@@ -178,7 +178,7 @@ def lambda_handler(event, context):
                     else "Lead accepted for processing"
                 ),
                 "lead_id": lead_id,
-                "status": "PENDING",
+                "status": "EXISTING" if duplicate else "PENDING",
                 "duplicate": duplicate
             })
         }
