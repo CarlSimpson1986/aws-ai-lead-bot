@@ -1,13 +1,13 @@
 import logging
 import json
 import os
-import uuid
 from datetime import datetime, timezone
 
 import boto3
+from botocore.exceptions import ClientError
 
 
-REQUIRED_FIELDS = ["name", "email", "company", "message"]
+REQUIRED_FIELDS = ["lead_id", "name", "email", "message"]
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -22,10 +22,14 @@ def log_event(event_name, **fields):
 
 
 FIELD_LIMITS = {
+    "lead_id": 100,
     "name": 100,
     "email": 254,
-    "company": 200,
     "message": 2000
+}
+
+OPTIONAL_FIELD_LIMITS = {
+    "company": 200
 }
 
 
@@ -44,6 +48,21 @@ def validate_lead_fields(body):
         if not value:
             errors[field] = "must not be empty"
             continue
+
+        if len(value) > max_length:
+            errors[field] = f"must be {max_length} characters or fewer"
+
+    for field, max_length in OPTIONAL_FIELD_LIMITS.items():
+        value = body.get(field)
+
+        if value is None:
+            continue
+
+        if not isinstance(value, str):
+            errors[field] = "must be a string"
+            continue
+
+        value = value.strip()
 
         if len(value) > max_length:
             errors[field] = f"must be {max_length} characters or fewer"
@@ -110,21 +129,36 @@ def lambda_handler(event, context):
 
         log_event("validation_passed")
 
-        lead_id = str(uuid.uuid4())
+        lead_id = body["lead_id"].strip()
         created_at = datetime.now(timezone.utc).isoformat()
 
         lead = {
             "lead_id": lead_id,
             "name": body["name"],
             "email": body["email"],
-            "company": body["company"],
             "message": body["message"],
             "status": "PENDING",
             "created_at": created_at
         }
 
-        table.put_item(Item=lead)
-        log_event("lead_persisted", lead_id=lead_id, status="PENDING")
+        if body.get("company"):
+            lead["company"] = body["company"].strip()
+
+        duplicate = False
+
+        try:
+            table.put_item(
+                Item=lead,
+                ConditionExpression="attribute_not_exists(lead_id)"
+            )
+            log_event("lead_persisted", lead_id=lead_id, status="PENDING")
+
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] != "ConditionalCheckFailedException":
+                raise
+
+            duplicate = True
+            log_event("duplicate_lead_received", lead_id=lead_id)
 
         sqs.send_message(
             QueueUrl=queue_url,
@@ -138,9 +172,14 @@ def lambda_handler(event, context):
         return {
             "statusCode": 202,
             "body": json.dumps({
-                "message": "Lead accepted for processing",
+                "message": (
+                    "Existing lead accepted for safe reprocessing"
+                    if duplicate
+                    else "Lead accepted for processing"
+                ),
                 "lead_id": lead_id,
-                "status": "PENDING"
+                "status": "PENDING",
+                "duplicate": duplicate
             })
         }
 

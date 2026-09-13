@@ -53,7 +53,7 @@ jobs:
           from pathlib import Path
           from zipfile import ZipFile, ZIP_DEFLATED
 
-          for name in ("ingestion", "processing"):
+          for name in ("ingestion", "processing", "retrieval"):
               source = Path(f"src/{name}/handler.py")
               output = Path(f"{name}-lambda.zip")
 
@@ -80,3 +80,12 @@ jobs:
 
           aws lambda wait function-updated-v2 \
             --function-name ai-lead-processing
+
+      - name: Deploy retrieval Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name ai-lead-retrieval \
+            --zip-file fileb://retrieval-lambda.zip
+
+          aws lambda wait function-updated-v2 \
+            --function-name ai-lead-retrieval

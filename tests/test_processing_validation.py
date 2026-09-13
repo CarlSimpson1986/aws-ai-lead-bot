@@ -1,65 +1,84 @@
-from src.processing.handler import validate_qualification, should_notify
+import pytest
+
+from src.processing.handler import validate_qualification
 
 
-def test_valid_qualified_result():
+def test_valid_hot_result():
     result = {
-        "score": 85,
-        "decision": "QUALIFIED",
-        "reason": "Clear commercial AI requirement"
+        "category": "HOT",
+        "summary": "Multi-site business with an approved budget and immediate requirement.",
+        "reason": "Clear commercial need, budget and buying intent.",
+        "confidence": 92
     }
 
     assert validate_qualification(result) == result
-    assert should_notify(result) is True
 
 
-def test_valid_unqualified_result():
+def test_valid_warm_result():
     result = {
-        "score": 40,
-        "decision": "UNQUALIFIED",
-        "reason": "Insufficient commercial intent"
+        "category": "WARM",
+        "summary": "Business is exploring AI automation but has not confirmed budget.",
+        "reason": "Relevant need but buying intent is not yet strong.",
+        "confidence": 78
     }
 
     assert validate_qualification(result) == result
-    assert should_notify(result) is False
 
 
-def test_rejects_score_above_100():
+def test_valid_cold_result():
     result = {
-        "score": 101,
-        "decision": "QUALIFIED",
-        "reason": "Invalid score"
+        "category": "COLD",
+        "summary": "General enquiry with no clear commercial requirement.",
+        "reason": "No meaningful buying intent or defined project.",
+        "confidence": 88
     }
 
-    try:
-        validate_qualification(result)
-        assert False, "Expected ValueError"
-    except ValueError as exc:
-        assert str(exc) == "Invalid qualification score"
+    assert validate_qualification(result) == result
 
 
-def test_rejects_qualified_below_threshold():
+def test_rejects_invalid_category():
     result = {
-        "score": 60,
-        "decision": "QUALIFIED",
-        "reason": "Threshold mismatch"
+        "category": "QUALIFIED",
+        "summary": "Example",
+        "reason": "Example",
+        "confidence": 90
     }
 
-    try:
+    with pytest.raises(ValueError):
         validate_qualification(result)
-        assert False, "Expected ValueError"
-    except ValueError as exc:
-        assert str(exc) == "QUALIFIED decision requires score >= 70"
 
 
-def test_rejects_unqualified_above_threshold():
+def test_rejects_confidence_above_100():
     result = {
-        "score": 80,
-        "decision": "UNQUALIFIED",
-        "reason": "Threshold mismatch"
+        "category": "HOT",
+        "summary": "Example",
+        "reason": "Example",
+        "confidence": 101
     }
 
-    try:
+    with pytest.raises(ValueError):
         validate_qualification(result)
-        assert False, "Expected ValueError"
-    except ValueError as exc:
-        assert str(exc) == "UNQUALIFIED decision requires score < 70"
+
+
+def test_rejects_missing_summary():
+    result = {
+        "category": "WARM",
+        "summary": "",
+        "reason": "Example",
+        "confidence": 80
+    }
+
+    with pytest.raises(ValueError):
+        validate_qualification(result)
+
+
+def test_rejects_missing_reason():
+    result = {
+        "category": "COLD",
+        "summary": "Example",
+        "reason": "",
+        "confidence": 80
+    }
+
+    with pytest.raises(ValueError):
+        validate_qualification(result)
