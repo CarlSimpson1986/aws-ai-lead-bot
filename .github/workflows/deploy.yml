@@ -43,9 +43,9 @@ jobs:
       - name: Configure AWS credentials with OIDC
         uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: arn:aws:iam::249215389486:role/github-actions-ai-lead-deploy-role
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/github-actions-ai-lead-deploy-role
           aws-region: eu-west-2
-          allowed-account-ids: 249215389486
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
 
       - name: Package Lambda functions
         run: |

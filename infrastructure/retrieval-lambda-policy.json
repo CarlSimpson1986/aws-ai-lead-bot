@@ -6,7 +6,7 @@
       "Action": [
         "dynamodb:GetItem"
       ],
-      "Resource": "arn:aws:dynamodb:eu-west-2:249215389486:table/ai-lead-qualification-leads"
+      "Resource": "arn:aws:dynamodb:eu-west-2:${AWS_ACCOUNT_ID}:table/ai-lead-qualification-leads"
     }
   ]
 }

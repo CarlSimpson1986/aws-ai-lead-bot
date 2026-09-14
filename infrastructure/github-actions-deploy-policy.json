@@ -9,9 +9,9 @@
         "lambda:GetFunction"
       ],
       "Resource": [
-        "arn:aws:lambda:eu-west-2:249215389486:function:ai-lead-ingestion",
-        "arn:aws:lambda:eu-west-2:249215389486:function:ai-lead-processing",
-        "arn:aws:lambda:eu-west-2:249215389486:function:ai-lead-retrieval"
+        "arn:aws:lambda:eu-west-2:${AWS_ACCOUNT_ID}:function:ai-lead-ingestion",
+        "arn:aws:lambda:eu-west-2:${AWS_ACCOUNT_ID}:function:ai-lead-processing",
+        "arn:aws:lambda:eu-west-2:${AWS_ACCOUNT_ID}:function:ai-lead-retrieval"
       ]
     }
   ]

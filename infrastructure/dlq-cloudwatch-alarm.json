@@ -3,7 +3,7 @@
   "AlarmDescription": "Alert when failed lead-processing messages are present in the DLQ",
   "ActionsEnabled": true,
   "AlarmActions": [
-    "arn:aws:sns:eu-west-2:249215389486:ai-lead-ops-alerts"
+    "arn:aws:sns:eu-west-2:${AWS_ACCOUNT_ID}:ai-lead-ops-alerts"
   ],
   "MetricName": "ApproximateNumberOfMessagesVisible",
   "Namespace": "AWS/SQS",
