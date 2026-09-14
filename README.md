@@ -20,8 +20,8 @@ This project demonstrates a low-cost AWS architecture that accepts a lead quickl
 
 The system is split into two views:
 
-1. **Application architecture** ? how leads move through the system.
-2. **Delivery and security architecture** ? how tested code is deployed safely to AWS.
+1. **Application architecture** - how leads move through the system.
+2. **Delivery and security architecture** - how tested code is deployed safely to AWS.
 
 ### Application Architecture
 
@@ -60,10 +60,10 @@ flowchart TD
     Logs["CloudWatch Logs<br/>Structured, PII-conscious"]
 
     Client -->|POST /leads| API
-    Client -->|GET /leads/{lead_id}| API
+    Client -->|GET lead by ID| API
 
     API -->|POST /leads| Ingest
-    API -->|GET /leads/{lead_id}| Retrieve
+    API -->|GET lead by ID| Retrieve
 
     Ingest -->|Persist PENDING lead| DB
     Ingest -->|Enqueue lead_id only| Queue
