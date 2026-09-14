@@ -129,9 +129,13 @@ flowchart LR
 
     ProcessingLambda["Processing Lambda"]
 
+    RetrievalLambda["Retrieval Lambda"]
+
     IngestRole["Ingestion IAM Role<br/>DynamoDB PutItem<br/>SQS SendMessage"]
 
     ProcessingRole["Processing IAM Role<br/>SQS + DynamoDB<br/>Bedrock + SNS"]
+
+    RetrievalRole["Retrieval IAM Role<br/>DynamoDB GetItem only"]
 
     Budget["AWS Budget<br/>Cost guardrail"]
 
@@ -147,12 +151,15 @@ flowchart LR
 
     DeployRole -->|Update approved function only| IngestLambda
     DeployRole -->|Update approved function only| ProcessingLambda
+    DeployRole -->|Update approved function only| RetrievalLambda
 
     IngestRole -. Permissions .-> IngestLambda
     ProcessingRole -. Permissions .-> ProcessingLambda
+    RetrievalRole -. Permissions .-> RetrievalLambda
 
     Budget -. Account cost monitoring .-> IngestLambda
     Budget -. Account cost monitoring .-> ProcessingLambda
+    Budget -. Account cost monitoring .-> RetrievalLambda
 ```
 
 ### Deployment Controls
