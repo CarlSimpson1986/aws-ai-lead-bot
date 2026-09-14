@@ -26,12 +26,14 @@ The system is split into two views:
 ### Application Architecture
 
 ```mermaid
-flowchart LR
-    Client[Lead Form / Client]
+flowchart TD
+    Client["Client / Webhook"]
 
-    API["API Gateway HTTP API<br/>POST /leads<br/>Throttle: 1 req/s, burst 2"]
+    API["API Gateway HTTP API<br/>POST /leads<br/>GET /leads/{lead_id}<br/>POST throttle: 1 req/s, burst 2"]
 
-    Ingest["Ingestion Lambda<br/>Validate request<br/>Generate lead_id"]
+    Ingest["Ingestion Lambda<br/>Validate request<br/>Use caller lead_id<br/>Duplicate-safe write"]
+
+    Retrieve["Retrieval Lambda<br/>Read-only GetItem<br/>Return non-PII result"]
 
     DB[("DynamoDB<br/>Lead state")]
 
@@ -43,9 +45,9 @@ flowchart LR
 
     Bedrock["Amazon Bedrock<br/>Nova Micro"]
 
-    QualifiedSNS["SNS<br/>Qualified Leads"]
+    HotSNS["SNS<br/>HOT Lead Alerts"]
 
-    QualifiedEmail["Qualified Lead Email"]
+    HotEmail["HOT Lead Email"]
 
     DLQ["SQS Dead-Letter Queue<br/>After 3 failed receives"]
 
@@ -58,21 +60,26 @@ flowchart LR
     Logs["CloudWatch Logs<br/>Structured, PII-conscious"]
 
     Client -->|POST /leads| API
-    API --> Ingest
+    Client -->|GET /leads/{lead_id}| API
+
+    API -->|POST /leads| Ingest
+    API -->|GET /leads/{lead_id}| Retrieve
 
     Ingest -->|Persist PENDING lead| DB
     Ingest -->|Enqueue lead_id only| Queue
+
+    Retrieve -->|Read lead result| DB
 
     Queue --> Mapping
     Mapping --> Process
 
     Process -->|Atomic conditional claim<br/>120s processing lease| DB
     Process -->|Company + message only| Bedrock
-    Bedrock -->|Validated JSON result| Process
+    Bedrock -->|Validated structured JSON| Process
 
-    Process -->|QUALIFIED / UNQUALIFIED<br/>score + reason| DB
-    Process -->|QUALIFIED only| QualifiedSNS
-    QualifiedSNS --> QualifiedEmail
+    Process -->|HOT / WARM / COLD<br/>category + summary + reason + confidence| DB
+    Process -->|HOT only| HotSNS
+    HotSNS --> HotEmail
 
     Queue -->|Repeated failure| DLQ
     DLQ --> Alarm
@@ -81,21 +88,24 @@ flowchart LR
 
     Ingest -. Structured logs .-> Logs
     Process -. Structured logs .-> Logs
+    Retrieve -. Structured logs .-> Logs
 ```
 
 ### Request Flow
 
-1. API Gateway receives `POST /leads`.
-2. The ingestion Lambda validates the public request.
-3. A `PENDING` lead is stored in DynamoDB.
-4. Only the generated `lead_id` is placed on SQS.
-5. API Gateway can return `202 Accepted` without waiting for AI inference.
-6. The SQS event source invokes the processing Lambda with controlled concurrency.
-7. The processing Lambda atomically claims the lead in DynamoDB using a temporary lease, preventing duplicate concurrent processing.
-8. Only the data required for qualification is sent to Amazon Bedrock.
-9. The model response is validated before persistent state is updated.
-10. Qualified leads generate an SNS notification.
-11. Repeated failures are moved to the DLQ and generate an operational alert.
+1. API Gateway receives `POST /leads` containing caller-supplied `lead_id`, `name`, `email`, and `message`; `company` is optional.
+2. The ingestion Lambda validates required fields, field types, email format, and input length limits.
+3. DynamoDB conditionally stores the lead as `PENDING` using the caller-supplied `lead_id`, preventing an existing lead from being overwritten.
+4. Only the `lead_id` is placed on SQS, minimising sensitive data in transit.
+5. The API returns `202 Accepted` without waiting for AI inference.
+6. The SQS event source invokes the processing Lambda with batch size 1 and controlled concurrency.
+7. The processing Lambda atomically claims the lead as `PROCESSING` using a temporary lease, preventing duplicate AI processing.
+8. Only the information required for qualification is sent to Amazon Bedrock; the lead email is not sent to the model.
+9. Bedrock returns `category`, `summary`, `reason`, and `confidence`, which are validated before persistence.
+10. DynamoDB is updated with a final classification of `HOT`, `WARM`, or `COLD`.
+11. Only `HOT` leads generate an SNS sales notification.
+12. `GET /leads/{lead_id}` invokes a read-only retrieval Lambda and returns the qualification result without exposing the stored email or full message.
+13. Repeated processing failures move to the DLQ and trigger an operational alert through CloudWatch and SNS.
 
 ### Delivery and Security Architecture
 
@@ -219,47 +229,69 @@ For latency-sensitive workloads, a shorter Lambda timeout and correspondingly sh
 
 ## End-to-End Async Validation
 
-The complete asynchronous lead qualification workflow was tested successfully in AWS.
+The complete asynchronous lead qualification workflow was tested successfully against the deployed AWS environment.
 
-Test result:
+Live acceptance testing proved all three required classifications:
 
-- Lead submitted to the ingestion Lambda
-- API-style response returned `202 Accepted`
-- Lead persisted to DynamoDB with `PENDING` status
-- SQS automatically triggered the processing Lambda
-- Processing Lambda retrieved the lead from DynamoDB
-- Amazon Nova Micro evaluated the business requirement
-- Model output passed application-level validation
-- Lead was scored `85`
-- Final status updated to `QUALIFIED`
-- Qualification reason persisted to DynamoDB
-- SNS published the qualified-lead notification
-- Notification email was received successfully
+- `HOT` lead -> classified and persisted as `HOT`
+- `WARM` lead -> classified and persisted as `WARM`
+- `COLD` lead -> classified and persisted as `COLD`
+- Structured model output included `category`, `summary`, `reason`, and `confidence`
+- Only the `HOT` lead generated the sales SNS email notification
+- `WARM` and `COLD` processing completed without a sales notification
 
-Example qualification result:
+Example live HOT result:
 
 ```json
 {
-  "status": "QUALIFIED",
-  "qualification_score": 85,
-  "qualification_reason": "Clear business need for AI chatbot to manage candidate inquiries and integrate with CRM."
+  "lead_id": "portfolio-hot-test-001",
+  "status": "HOT",
+  "category": "HOT",
+  "summary": "A company with 12 locations seeking AI lead qualification and automation system integration with a ready budget and immediate implementation intent.",
+  "reason": "The lead clearly states an immediate business need, strong buying intent, and sufficient detail for prompt sales follow-up.",
+  "confidence": 90
 }
 ```
 
-This validates the complete asynchronous architecture rather than testing each component only in isolation.
+The HOT notification email was received successfully through SNS.
 
+Live WARM and COLD tests returned confidence values of 70 and produced no HOT sales notification.
+
+Duplicate handling was also tested using the same caller-supplied `lead_id`. The API returned:
+
+```json
+{
+  "status": "EXISTING",
+  "duplicate": true
+}
+```
+
+CloudWatch logs then showed `duplicate_skipped` with the existing final status and no second qualification event, proving the duplicate was stopped before another Bedrock invocation.
+
+This validates the complete asynchronous architecture rather than testing each component only in isolation.
 
 ## Public API Gateway
 
-A public Amazon API Gateway HTTP API exposes the ingestion workflow through:
+A public Amazon API Gateway HTTP API exposes two application routes:
 
-POST /leads
+- `POST /leads`
+- `GET /leads/{lead_id}`
 
-The HTTP API uses an AWS_PROXY integration with the ingestion Lambda and payload format version 2.0.
+`POST /leads` invokes the ingestion Lambda using AWS_PROXY integration and accepts:
+
+- `lead_id`
+- `name`
+- `email`
+- `message`
+- optional `company`
+
+`GET /leads/{lead_id}` invokes a separate read-only retrieval Lambda.
+
+The retrieval response exposes qualification data but intentionally excludes the stored email address and original message.
 
 ### API Security and Cost Guardrail
 
-The POST /leads route is configured with:
+The `POST /leads` route is configured with:
 
 - Steady-state throttling: 1 request per second
 - Burst limit: 2 requests
@@ -270,21 +302,29 @@ Throttling is a cost and availability guardrail, not an authentication mechanism
 
 ### Public API Validation
 
-The public endpoint was tested with both invalid and valid requests.
+The deployed public endpoint was tested with both invalid and valid requests.
 
 Invalid request:
-- Missing required fields
+
+- Missing required `lead_id`
 - Returned HTTP 400
 - Rejected before SQS and Bedrock processing
 
-Valid production-style request:
+Valid request:
+
 - Returned HTTP 202 Accepted
-- Persisted the lead to DynamoDB
-- Enqueued the lead ID through SQS
+- Persisted the caller-supplied lead ID to DynamoDB
+- Enqueued only the lead ID through SQS
 - Automatically invoked the processing Lambda
-- Amazon Nova Micro scored the lead 85
-- DynamoDB status was updated to QUALIFIED
-- SNS notification email was received successfully
+- Amazon Nova Micro returned structured qualification output
+- DynamoDB was updated to `HOT`, `WARM`, or `COLD`
+- Only the HOT test generated the sales SNS email
+
+Retrieval validation:
+
+- Existing leads were retrieved through `GET /leads/{lead_id}`
+- A nonexistent lead returned HTTP 404
+- Retrieval responses excluded stored PII such as email and the original lead message
 
 
 ### Processing Concurrency Guardrail
@@ -323,7 +363,7 @@ The processing Lambda therefore uses a conditional DynamoDB update to atomically
 - Only the invocation that successfully acquires the claim continues to Bedrock
 - Duplicate invocations fail the conditional update and stop before inference
 - If processing crashes, the lease eventually expires so a later SQS retry can reclaim the lead
-- On successful completion, the lead becomes `QUALIFIED` or `UNQUALIFIED` and the temporary lease is removed
+- On successful completion, the lead becomes `HOT`, `WARM`, or `COLD` and the temporary lease is removed
 
 The timing relationship is:
 
@@ -333,7 +373,7 @@ The timing relationship is:
 
 This provides duplicate protection without permanently locking a lead if processing fails.
 
-A live test confirmed that a lead moved through `PENDING` -> `PROCESSING` -> `QUALIFIED`, scored 85, had its lease removed, and still generated the expected SNS email notification.
+Live testing confirmed that a new lead moved through `PENDING` -> `PROCESSING` -> a final `HOT`, `WARM`, or `COLD` classification. Duplicate delivery of an already completed lead produced `duplicate_skipped` and stopped before another Bedrock invocation.
 
 
 
@@ -405,18 +445,15 @@ Logs intentionally include only operational fields such as:
 
 - `lead_id`
 - `status`
-- `score`
+- `confidence`
 
 Personally identifiable lead data such as names, email addresses and full lead messages are not written to application logs.
 
-A live test confirmed the following sequence for a successfully qualified lead:
+Live acceptance tests demonstrated:
 
-- `lead_received`
-- `lead_claimed`
-- `qualification_complete`
-- `notification_sent`
-
-The test completed in approximately 3.9 seconds and used 98 MB of the Lambda's 128 MB memory allocation.
+- A `HOT` lead progressed through `lead_received`, `lead_claimed`, `qualification_complete`, and the notification path
+- `WARM` and `COLD` leads completed qualification without a HOT sales notification
+- A duplicate completed lead produced `duplicate_skipped` and returned before another Bedrock invocation
 
 This provides operational traceability while reducing unnecessary exposure of customer data in CloudWatch.
 
@@ -450,23 +487,25 @@ The public `POST /leads` endpoint validates both field presence and field qualit
 
 Current validation rules:
 
-- `name`: string, maximum 100 characters
-- `email`: string, maximum 254 characters, basic email-format validation
-- `company`: string, maximum 200 characters
-- `message`: string, maximum 2,000 characters
-- Empty strings are rejected
+- `lead_id`: required string, maximum 100 characters
+- `name`: required string, maximum 100 characters
+- `email`: required string, maximum 254 characters, basic email-format validation
+- `message`: required string, maximum 2,000 characters
+- `company`: optional string, maximum 200 characters
+- Empty required values are rejected
 - Incorrect data types are rejected
 
-This reduces malformed input, oversized payloads and unnecessary downstream processing.
+DynamoDB uses a conditional write on `lead_id` so an existing lead cannot be overwritten accidentally.
 
 Live validation tests confirmed:
 
-- Non-string `name` values are rejected
+- Missing `lead_id` returns HTTP 400
+- Non-string field values are rejected
 - Invalid email formats are rejected
 - Messages longer than 2,000 characters are rejected
-- Invalid requests return HTTP 400
-- Rejected requests do not reach DynamoDB, SQS or Bedrock
-- A valid request still completed the full workflow successfully and generated the expected qualified-lead email notification
+- Rejected requests do not proceed to AI processing
+- Valid requests complete the asynchronous workflow successfully
+- Only leads ultimately classified as `HOT` trigger the sales notification
 
 The message-length limit also acts as an AI cost guardrail by preventing excessively large user-controlled prompts from reaching Bedrock.
 
@@ -478,31 +517,36 @@ The project includes local unit tests using `pytest`.
 Current coverage includes:
 
 ### Ingestion validation
-- Valid lead payloads
-- Invalid email formats
+
+- Valid lead with caller-supplied `lead_id`
+- Optional `company`
+- Invalid email format
 - Incorrect field data types
 - Oversized lead messages
+- Invalid `lead_id` type
 
 ### Processing validation
-- Valid qualified model output
-- Valid unqualified model output
-- Scores outside the 0-100 range
-- `QUALIFIED` decisions below the 70-point threshold
-- `UNQUALIFIED` decisions at or above the 70-point threshold
-- Notification decision logic
+
+- Valid `HOT` model output
+- Valid `WARM` model output
+- Valid `COLD` model output
+- Invalid classification category
+- Confidence outside the 0-100 range
+- Missing or empty `summary`
+- Missing or empty `reason`
+
+### Retrieval validation
+
+- Missing path `lead_id` returns HTTP 400
+- Unknown lead returns HTTP 404
+- Successful retrieval returns qualification data without exposing stored email or original message
 
 Current test result:
 
-- 9 tests passed
+- 16 tests passed
 - 0 tests failed
 
-The ingestion Lambda was also refactored so AWS SDK clients are created inside `lambda_handler()` rather than during module import. This keeps pure validation logic independent of AWS configuration and makes local unit testing easier.
-
-Development dependencies are recorded in `requirements-dev.txt` so the test environment can be reproduced after cloning the repository.
-
-Run the test suite with:
-
-`python -m pytest tests -v`
+GitHub Actions runs the test suite using Python 3.13 before deployment. The CD workflow only deploys after successful CI and checks out the exact tested commit SHA.
 
 
 ## CI/CD Pipeline

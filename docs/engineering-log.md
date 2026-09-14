@@ -28,7 +28,7 @@ It complements the README and Git history:
 
 **Decision:** Store lead state in DynamoDB while SQS carries only the `lead_id`.
 
-**Reason:** SQS is a transport mechanism, not the long-term system of record. DynamoDB allows status tracking from PENDING through PROCESSING to QUALIFIED or UNQUALIFIED.
+**Reason:** SQS is a transport mechanism, not the long-term system of record. DynamoDB allows status tracking from PENDING through PROCESSING to HOT, WARM, or COLD.
 
 **Trade-off:** Requires an additional database service and state-management logic.
 
@@ -45,7 +45,7 @@ It complements the README and Git history:
 **Implementation:**
 - SQS contains only `lead_id`.
 - Bedrock receives company and message, not email.
-- Qualified-lead SNS notifications contain lead ID, score and reason rather than the full lead payload.
+- HOT-lead SNS notifications contain lead ID, category, summary, reason and confidence rather than the full lead payload.
 - Application logs avoid lead PII.
 
 **Reason:** Reduce unnecessary exposure of customer data and limit the impact of logs, queues or notifications being accessed.
@@ -159,12 +159,14 @@ It complements the README and Git history:
 - invalid email
 - non-string fields
 - oversized message
-- valid QUALIFIED model output
-- valid UNQUALIFIED model output
-- score range validation
-- qualification threshold consistency
+- valid HOT model output
+- valid WARM model output
+- valid COLD model output
+- confidence range validation
+- invalid category rejection
+- missing or empty summary and reason validation
 
-**Current result:** 9 tests passing.
+**Current result:** 16 tests passing.
 
 **Reason:** Deterministic validation logic should be tested without requiring live AWS services or Bedrock calls.
 

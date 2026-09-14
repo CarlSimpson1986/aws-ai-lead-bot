@@ -32,7 +32,7 @@ The AWS resources depend on one another, so deployment should follow this order:
 1. DynamoDB table
 2. SQS dead-letter queue
 3. SQS processing queue
-4. SNS qualified-lead topic
+4. SNS HOT-lead alert topic
 5. SNS operational-alert topic
 6. Lambda IAM roles and policies
 7. Ingestion Lambda
@@ -140,7 +140,7 @@ The reproduction procedure above generates the ARN dynamically so the deployment
 
 ## 3. Create the SNS Topics
 
-Create the qualified-lead notification topic:
+Create the HOT-lead notification topic. The deployed AWS resource retains the original name `ai-lead-qualified`:
 
 ```powershell
 aws sns create-topic `
@@ -156,9 +156,225 @@ aws sns create-topic `
   --region eu-west-2
 ```
 
-The qualified-lead topic is used for successful qualification notifications.
+The `ai-lead-qualified` topic is used only for leads classified as `HOT`. The resource name is retained from the original implementation.
 
 The operational-alert topic is used by CloudWatch to notify operators when messages reach the dead-letter queue.
 
 Email subscriptions are environment-specific and should be created using the recipient address appropriate to the deployment rather than hard-coding the reference deployment address.
 
+
+
+## 4. Lambda Functions and IAM Roles
+
+The deployed application uses three Lambda functions:
+
+- `ai-lead-ingestion`
+- `ai-lead-processing`
+- `ai-lead-retrieval`
+
+Each function has a separate least-privilege IAM role.
+
+### Ingestion Lambda
+
+Responsibilities:
+
+- Validate the public request
+- Accept caller-supplied `lead_id`
+- Conditionally store the lead in DynamoDB
+- Send only the `lead_id` to SQS
+
+Required permissions:
+
+- `dynamodb:PutItem` on the project table
+- `sqs:SendMessage` on the processing queue
+- CloudWatch Logs permissions for its own log group
+
+### Processing Lambda
+
+Responsibilities:
+
+- Read the lead from DynamoDB
+- Atomically claim the lead using a processing lease
+- Invoke Amazon Bedrock Nova Micro
+- Validate `category`, `summary`, `reason`, and `confidence`
+- Persist `HOT`, `WARM`, or `COLD`
+- Publish to SNS only when the lead is `HOT`
+
+Required permissions:
+
+- SQS receive/delete/get attributes on the processing queue
+- DynamoDB `GetItem` and `UpdateItem`
+- `bedrock:InvokeModel` for Nova Micro
+- `sns:Publish` to the HOT-lead topic
+- CloudWatch Logs permissions for its own log group
+
+### Retrieval Lambda
+
+Responsibilities:
+
+- Handle `GET /leads/{lead_id}`
+- Read the lead from DynamoDB
+- Return qualification data without exposing stored email or original message
+
+Required permissions:
+
+- `dynamodb:GetItem` on the project table
+- CloudWatch Logs permissions for its own log group
+
+The retrieval role intentionally has no write access to DynamoDB.
+
+
+## 5. API Gateway Routes
+
+The HTTP API exposes two routes:
+
+```text
+POST /leads
+GET /leads/{lead_id}
+```
+
+`POST /leads` integrates with `ai-lead-ingestion`.
+
+`GET /leads/{lead_id}` integrates with `ai-lead-retrieval`.
+
+The POST route is throttled to:
+
+- 1 request per second steady state
+- Burst limit of 2
+
+The API returns `202 Accepted` for valid asynchronous submissions.
+
+A missing required `lead_id` returns HTTP 400.
+
+A retrieval request for an unknown lead returns HTTP 404.
+
+
+## 6. SQS Event Source Mapping
+
+The processing queue invokes `ai-lead-processing`.
+
+Configuration:
+
+- Batch size: 1
+- Maximum concurrency: 2
+- Queue visibility timeout: 180 seconds
+- Processing Lambda timeout: 30 seconds
+- Processing lease: 120 seconds
+
+The queue redrive policy moves repeatedly failing messages to the DLQ after three failed receives.
+
+
+## 7. CloudWatch Monitoring
+
+Lambda log groups:
+
+```text
+/aws/lambda/ai-lead-ingestion
+/aws/lambda/ai-lead-processing
+/aws/lambda/ai-lead-retrieval
+```
+
+The DLQ is monitored using a CloudWatch alarm on:
+
+```text
+AWS/SQS
+ApproximateNumberOfMessagesVisible
+```
+
+Alarm condition:
+
+- Queue: `ai-lead-qualification-dlq`
+- Threshold: 1 or more visible messages
+- Period: 60 seconds
+- Evaluation periods: 1
+- Missing data: `notBreaching`
+
+The alarm publishes to the dedicated operations SNS topic.
+
+The failure path was validated live by sending a poison message, observing retries, DLQ redrive, alarm transition to `ALARM`, email notification, and eventual recovery to `OK`.
+
+
+## 8. CI/CD Deployment
+
+GitHub Actions provides both CI and CD.
+
+### Continuous Integration
+
+On relevant pushes and pull requests:
+
+1. Checkout repository
+2. Use Python 3.13
+3. Install development dependencies
+4. Run `pytest`
+
+Current automated test result:
+
+```text
+16 passed
+```
+
+### Continuous Deployment
+
+A successful CI run on `main` triggers the deployment workflow.
+
+The deployment workflow:
+
+1. Checks out the exact commit SHA that passed CI
+2. Runs the tests again
+3. Uses GitHub OIDC to obtain short-lived AWS credentials
+4. Assumes a least-privilege deployment role
+5. Packages the Lambda source
+6. Updates:
+   - `ai-lead-ingestion`
+   - `ai-lead-processing`
+   - `ai-lead-retrieval`
+7. Waits for each Lambda update to complete
+
+No long-lived AWS access keys are stored in GitHub.
+
+
+## 9. Live Acceptance Validation
+
+The deployed system has been validated end-to-end.
+
+Confirmed behaviour:
+
+- HOT lead classified as `HOT`
+- WARM lead classified as `WARM`
+- COLD lead classified as `COLD`
+- Structured output includes category, summary, reason, and confidence
+- Only HOT leads trigger the sales SNS notification
+- Duplicate lead IDs do not overwrite the existing record
+- Duplicate processing is stopped before another Bedrock invocation
+- GET retrieval works by `lead_id`
+- Retrieval excludes stored email and original message
+- Missing required `lead_id` returns HTTP 400
+- Unknown retrieval ID returns HTTP 404
+- Repeated processing failures reach the DLQ and trigger an operational alert
+
+
+## 10. Cost and Production Notes
+
+The architecture is intentionally serverless and low-volume.
+
+Cost controls include:
+
+- API Gateway throttling
+- SQS-controlled processing concurrency
+- Small Lambda memory allocations
+- Minimal data sent to Bedrock
+- Input length limits
+- AWS Budget alerting
+- Bedrock invoked only after successful validation and atomic claim
+
+The reference deployment is appropriate for portfolio and low-volume workloads.
+
+For a production client deployment, additional controls could include:
+
+- Authentication or API keys
+- AWS WAF or bot protection
+- Infrastructure as Code
+- Separate environments
+- Automated secret rotation where applicable
+- Enhanced dashboards and alerting
+- Retention policies and formal data lifecycle controls
