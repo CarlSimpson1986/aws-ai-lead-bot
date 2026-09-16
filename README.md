@@ -556,6 +556,31 @@ Current test result:
 GitHub Actions runs the test suite using Python 3.13 before deployment. The CD workflow only deploys after successful CI and checks out the exact tested commit SHA.
 
 
+## Security Validation
+
+The repository has undergone both manual security review and automated security scanning.
+
+Automated checks completed:
+
+- **Bandit** - Python static security analysis: **0 issues identified**
+- **pip-audit** - dependency vulnerability scan: **0 known vulnerabilities found**
+- **Gitleaks** - Git history secret scan: **43 commits scanned, 0 leaks found**
+
+Additional security controls implemented in the project include:
+
+- Least-privilege IAM roles
+- GitHub Actions OIDC with short-lived AWS credentials
+- No long-lived AWS keys stored in GitHub
+- PII-conscious application logging
+- Lead email excluded from Bedrock prompts
+- SQS carries only `lead_id`
+- Structured model-output validation
+- Duplicate/idempotent processing protection
+- API throttling and input-length limits
+- DLQ monitoring and operational alerts
+- AWS account ID parameterised rather than hardcoded in the public codebase
+
+
 ## CI/CD Pipeline
 
 The project uses GitHub Actions for continuous integration and AWS deployment.
