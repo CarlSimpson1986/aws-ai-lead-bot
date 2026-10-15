@@ -23,7 +23,7 @@ The current repository does not provide a one-command Infrastructure-as-Code dep
 
 The reference deployment uses:
 
-`eu-west-2` — Europe (London)
+`eu-west-2` - Europe (London)
 
 ## Deployment Order
 
@@ -78,8 +78,8 @@ The deliberately low provisioned capacity keeps the portfolio deployment small a
 
 The architecture uses:
 
-- `ai-lead-qualification-dlq` — isolates repeatedly failing messages
-- `ai-lead-qualification-processing` — buffers leads for asynchronous processing
+- `ai-lead-qualification-dlq` - isolates repeatedly failing messages
+- `ai-lead-qualification-processing` - buffers leads for asynchronous processing
 
 Create the dead-letter queue first:
 

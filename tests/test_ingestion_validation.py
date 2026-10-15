@@ -5,7 +5,7 @@ def test_valid_lead_fields():
     body = {
         "lead_id": "lead-001",
         "name": "Carl Simpson",
-        "email": "admin@myfitpod.co.uk",
+        "email": "admin@example.com",
         "message": "We need an AI lead qualification system."
     }
 
@@ -16,7 +16,7 @@ def test_company_is_optional():
     body = {
         "lead_id": "lead-002",
         "name": "Carl Simpson",
-        "email": "admin@myfitpod.co.uk",
+        "email": "admin@example.com",
         "message": "We need an AI lead qualification system."
     }
 
@@ -40,7 +40,7 @@ def test_rejects_non_string_name():
     body = {
         "lead_id": "lead-004",
         "name": 123,
-        "email": "admin@myfitpod.co.uk",
+        "email": "admin@example.com",
         "message": "We need an AI lead qualification system."
     }
 
@@ -53,7 +53,7 @@ def test_rejects_oversized_message():
     body = {
         "lead_id": "lead-005",
         "name": "Carl Simpson",
-        "email": "admin@myfitpod.co.uk",
+        "email": "admin@example.com",
         "message": "A" * 2001
     }
 
@@ -66,7 +66,7 @@ def test_rejects_invalid_lead_id_type():
     body = {
         "lead_id": 123,
         "name": "Carl Simpson",
-        "email": "admin@myfitpod.co.uk",
+        "email": "admin@example.com",
         "message": "We need an AI lead qualification system."
     }
 

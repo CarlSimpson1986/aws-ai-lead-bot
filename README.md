@@ -168,7 +168,7 @@ flowchart LR
 - Failed CI does not deploy to AWS.
 - CD deploys the exact commit SHA that CI tested.
 - GitHub authenticates to AWS through OIDC rather than stored access keys.
-- The deployment role is scoped only to the two project Lambda functions.
+- The deployment role is scoped only to the three project Lambda functions.
 - Runtime Lambda roles use separate least-privilege permissions.
 - Documentation-only changes do not trigger unnecessary Lambda deployments.
 - An AWS Budget alert provides an additional cost guardrail.
@@ -597,7 +597,7 @@ It:
 - Runs the complete pytest suite
 - Fails the workflow if automated tests fail
 
-The first live CI run completed successfully with all 9 tests passing.
+The current automated test suite completes successfully with all 16 tests passing.
 
 ### Continuous Deployment
 
@@ -611,10 +611,12 @@ The deployment workflow:
 - Runs the automated test suite again before deployment
 - Authenticates to AWS using GitHub OIDC
 - Uses temporary AWS credentials rather than stored access keys
-- Packages both Lambda functions
+- Packages all three Lambda functions
 - Deploys the ingestion Lambda
 - Waits for the deployment to complete
 - Deploys the processing Lambda
+- Waits for the deployment to complete
+- Deploys the retrieval Lambda
 - Waits for the deployment to complete
 
 Documentation-only changes are excluded from CI using path filters, preventing unnecessary Lambda redeployments.
@@ -625,6 +627,7 @@ The deployment role follows least privilege and can only update and inspect:
 
 - `ai-lead-ingestion`
 - `ai-lead-processing`
+- `ai-lead-retrieval`
 
 It cannot modify IAM, DynamoDB, SQS, API Gateway, Bedrock or unrelated Lambda functions.
 
