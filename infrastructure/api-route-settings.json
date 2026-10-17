@@ -2,5 +2,9 @@
   "POST /leads": {
     "ThrottlingBurstLimit": 2,
     "ThrottlingRateLimit": 1
+  },
+  "GET /leads/{lead_id}": {
+    "ThrottlingBurstLimit": 2,
+    "ThrottlingRateLimit": 1
   }
 }
