@@ -2,6 +2,15 @@
 
 Serverless asynchronous lead qualification system built with AWS CLI.
 
+## Summary
+
+- **What it does:** accepts sales leads through a public API, replies instantly (`202 Accepted`), then qualifies each lead as `HOT`, `WARM` or `COLD` with Amazon Bedrock in the background. Only `HOT` leads trigger a sales alert.
+- **Built with:** API Gateway, Lambda (x3), DynamoDB, SQS with a dead-letter queue, Amazon Bedrock (Nova Micro), SNS, CloudWatch, and GitHub Actions CI/CD using OIDC.
+- **Engineered for:** resilience (async processing, DLQ, alarms), no duplicate AI calls (atomic claim with a processing lease), least-privilege IAM, PII kept out of logs and the model, and cost control (throttling, a concurrency cap, a budget).
+- **Proven live:** HOT, WARM and COLD classifications, duplicate handling, poison-message routing to the DLQ, alarm and recovery, and 16 automated tests gating every deployment.
+
+Key design choices and their trade-offs are summarised in the [Architecture Decision Matrix](#architecture-decision-matrix).
+
 ## Business Problem
 
 Businesses receiving leads through websites, campaigns or internal systems often need to decide quickly which enquiries deserve immediate attention.
@@ -176,7 +185,7 @@ flowchart LR
 ## Project Goals
 
 - AWS CLI only
-- �0 out-of-pocket using AWS Free Tier / free-plan credits
+- £0 out-of-pocket using AWS Free Tier / free-plan credits
 - Least-privilege IAM
 - Asynchronous and resilient architecture
 - Production-style logging and failure handling
@@ -205,6 +214,10 @@ No additional IAM permissions were added because doing so would not resolve an a
 
 Keep the existing Bedrock IAM policy unchanged and continue building/testing the surrounding workflow while AWS completes account verification.
 
+### Outcome
+
+Resolved. AWS completed account verification, and the live end-to-end tests below ran successfully against Bedrock with the original policy, still restricted to `amazon.nova-micro-v1:0`. No permissions were broadened.
+
 ### Engineering Principle
 
 Infrastructure or provider-level restrictions should be distinguished from application defects before changing code or security permissions.
@@ -214,7 +227,17 @@ Infrastructure or provider-level restrictions should be distinguished from appli
 
 | Area | Decision | Why | Trade-off / Alternative |
 |---|---|---|---|
+| Processing model | Asynchronous: API Gateway → ingestion Lambda → DynamoDB + SQS → processing Lambda → Bedrock | The API acknowledges leads instantly; Bedrock latency or failure never reaches the caller, and failed work is retried safely | Adds eventual consistency and more infrastructure. Alternative: synchronous API → Lambda → Bedrock, rejected for resilience |
+| System of record | DynamoDB holds lead state; SQS carries only `lead_id` | SQS is transport, not storage; DynamoDB tracks `PENDING` → `PROCESSING` → `HOT`/`WARM`/`COLD` | Extra service and state logic. Alternative: full payload in SQS, rejected as it duplicates sensitive data |
+| Data minimisation | No PII in the queue, logs or SNS alerts; Bedrock receives company and message only, never email | Limits exposure if logs, queues or notifications are accessed | Processing Lambda must read from DynamoDB before inference |
+| Duplicate protection | Atomic conditional claim with a 120-second processing lease | SQS Standard is at-least-once; a simple status check lets two invocations both call Bedrock | More conditional-update and lease-recovery logic |
+| SQS visibility timeout | 180 seconds against a 30-second Lambda timeout | Follows AWS guidance of at least six times the function timeout; prevents redelivery mid-processing | Genuinely failed messages take longer to retry and reach the DLQ |
+| Failure isolation | DLQ after 3 receives, with a CloudWatch alarm and SNS operations alert | Failing messages are isolated, not retried forever or lost silently | Operator must investigate and redrive manually |
+| Processing concurrency | Max concurrency 2 on the SQS event source mapping | Caps Bedrock usage and cost during spikes; reserved concurrency was rejected by the account's unreserved-concurrency minimum | Large backlogs process more slowly |
+| Public API guardrails | Throttling (1 req/s, burst 2) plus strict input validation and a 2,000-character message limit | Reduces abuse, queue growth and oversized prompts reaching Bedrock | Throttling is not authentication; production would add bot protection or auth |
+| Deployment credentials | GitHub OIDC with a role scoped to the three project Lambdas | No long-lived access keys stored in GitHub | More setup than static keys |
 | Bedrock verification failure | Do not broaden IAM permissions | The live Converse call reached Bedrock but was blocked by AWS account verification, not by missing role permissions | Wait for account verification instead of weakening least-privilege IAM |
+| Provisioning | AWS CLI with versioned JSON policy and config files | Project goal: build with the AWS CLI only | Not full Infrastructure as Code; the stack cannot be recreated in a single step |
 
 ### SQS Visibility Timeout
 
