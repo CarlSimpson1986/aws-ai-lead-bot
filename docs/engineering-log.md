@@ -4,9 +4,9 @@ This log records significant architecture decisions, implementation changes, fai
 
 It complements the README and Git history:
 
-- **README** — polished portfolio and architecture story
-- **Git history** — exact implementation changes
-- **Engineering log** — why decisions were made, what failed and what was learned
+- **README** â€” polished portfolio and architecture story
+- **Git history** â€” exact implementation changes
+- **Engineering log** â€” why decisions were made, what failed and what was learned
 
 ---
 
