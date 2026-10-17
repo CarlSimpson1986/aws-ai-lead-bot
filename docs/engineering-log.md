@@ -303,3 +303,33 @@ Before declaring the project portfolio-ready, review:
 
 **Validation:** The workflow-change commit triggered CI and CD successfully. A documentation-only commit is used to verify that neither workflow runs unnecessarily.
 
+
+---
+
+## 18. Securing the Retrieval Route
+
+**What happened:** A security review found that `GET /leads/{lead_id}` had no route authorization. Anyone who found the API URL and knew or guessed a lead ID could read that lead's qualification result, including the AI summary of the lead's business intent. The route was also unthrottled.
+
+**Why:** Route authorization was out of the original build scope. Lambda execution roles controlled what each function could do (outbound permissions), but nothing controlled who could call the route (inbound access).
+
+**How it was diagnosed:** `aws apigatewayv2 get-routes` showed `AuthorizationType: NONE` on both routes. `aws apigatewayv2 get-stage` showed a throttle on `POST /leads` only.
+
+**Decision:** Lock the GET route with IAM authorization rather than deleting it.
+
+**Reason:** Only internal systems need lead results (sales team tooling and future lead nurture). The person submitting a lead should never see their own classification.
+
+**How it was fixed:**
+- Set `GET /leads/{lead_id}` authorization type to `AWS_IAM`, so callers must sign requests with SigV4 and hold `execute-api` permission for the route.
+- Added a route throttle to GET: 1 request/second, burst 2.
+- Confirmed the stage uses auto-deploy, so changes went live immediately.
+
+**Validation:**
+- Before: `AuthorizationType: NONE`; unsigned GET returned lead data.
+- After: `AuthorizationType: AWS_IAM`; unsigned GET returns `403 Forbidden` before the retrieval Lambda is invoked.
+- Stage route settings confirmed throttles on both POST and GET.
+
+**Trade-off:** Internal callers must now sign requests with AWS credentials, which adds integration effort for any future dashboard or nurture tool.
+
+**What was learned:** Lambda execution roles and API route authorization are separate controls. Least-privilege function roles do not stop anyone from calling a public route.
+
+**Remaining gap:** `POST /leads` is still public. Planned fix: route leads through a server-side sender holding a shared secret, verified in the ingestion Lambda before SQS or Bedrock.

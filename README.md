@@ -38,7 +38,7 @@ The system is split into two views:
 flowchart TD
     Client["Client / Webhook"]
 
-    API["API Gateway HTTP API<br/>POST /leads<br/>GET /leads/{lead_id}<br/>POST throttle: 1 req/s, burst 2"]
+    API["API Gateway HTTP API<br/>POST /leads<br/>GET /leads/{lead_id}<br/>POST + GET throttle: 1 req/s, burst 2<br/>GET: IAM authorization"]
 
     Ingest["Ingestion Lambda<br/>Validate request<br/>Use caller lead_id<br/>Duplicate-safe write"]
 
@@ -113,7 +113,7 @@ flowchart TD
 9. Bedrock returns `category`, `summary`, `reason`, and `confidence`, which are validated before persistence.
 10. DynamoDB is updated with a final classification of `HOT`, `WARM`, or `COLD`.
 11. Only `HOT` leads generate an SNS sales notification.
-12. `GET /leads/{lead_id}` invokes a read-only retrieval Lambda and returns the qualification result without exposing the stored email or full message.
+12. `GET /leads/{lead_id}` requires IAM authorization (SigV4-signed requests) and invokes a read-only retrieval Lambda and returns the qualification result without exposing the stored email or full message.
 13. Repeated processing failures move to the DLQ and trigger an operational alert through CloudWatch and SNS.
 
 ### Delivery and Security Architecture
@@ -235,6 +235,8 @@ Infrastructure or provider-level restrictions should be distinguished from appli
 | Failure isolation | DLQ after 3 receives, with a CloudWatch alarm and SNS operations alert | Failing messages are isolated, not retried forever or lost silently | Operator must investigate and redrive manually |
 | Processing concurrency | Max concurrency 2 on the SQS event source mapping | Caps Bedrock usage and cost during spikes; reserved concurrency was rejected by the account's unreserved-concurrency minimum | Large backlogs process more slowly |
 | Public API guardrails | Throttling (1 req/s, burst 2) plus strict input validation and a 2,000-character message limit | Reduces abuse, queue growth and oversized prompts reaching Bedrock | Throttling is not authentication; production would add bot protection or auth |
+| Retrieval route access | IAM authorization (`AWS_IAM`) plus a throttle (1 req/s, burst 2) on `GET /leads/{lead_id}` | Only internal systems need lead results; the person submitting should never see their classification | Internal callers must sign requests with SigV4 |
+
 | Deployment credentials | GitHub OIDC with a role scoped to the three project Lambdas | No long-lived access keys stored in GitHub | More setup than static keys |
 | Bedrock verification failure | Do not broaden IAM permissions | The live Converse call reached Bedrock but was blocked by AWS account verification, not by missing role permissions | Wait for account verification instead of weakening least-privilege IAM |
 | Provisioning | AWS CLI with versioned JSON policy and config files | Project goal: build with the AWS CLI only | Not full Infrastructure as Code; the stack cannot be recreated in a single step |
@@ -329,6 +331,9 @@ The `POST /leads` route is configured with:
 This reduces the risk of accidental or abusive traffic generating unnecessary Lambda, SQS and Bedrock usage.
 
 Throttling is a cost and availability guardrail, not an authentication mechanism. A production deployment could additionally introduce authentication, bot protection or edge security depending on whether the lead endpoint is intended to be public or restricted.
+
+The `GET /leads/{lead_id}` route requires IAM authorization and is throttled to 1 request per second (burst 2). Unsigned requests receive `403 Forbidden` before the retrieval Lambda is invoked. See engineering log entry 18.
+
 
 ### Public API Validation
 
@@ -599,7 +604,8 @@ Additional security controls implemented in the project include:
 - SQS carries only `lead_id`
 - Structured model-output validation
 - Duplicate/idempotent processing protection
-- API throttling and input-length limits
+- API throttling on both routes and input-length limits
+- IAM authorization on the lead retrieval route
 - DLQ monitoring and operational alerts
 - AWS account ID parameterised rather than hardcoded in the public codebase
 
